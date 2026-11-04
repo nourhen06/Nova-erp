@@ -373,15 +373,34 @@ def finance():
         return {'bank_balance_cents':bank,'budget_total_cents':budget,'note':'Banque saisie manuellement, sans rapprochement automatique'}
 @app.post('/api/assistant')
 def assistant(x:AssistantQuestion):
-    q=x.question.lower()
-    d=dashboard();f=finance()
-    if any(w in q for w in ['impay','encaisser','reste à payer']): answer=f"Factures validées non encaissées : {d['unpaid_cents']/100:.2f} € TTC."
-    elif any(w in q for w in ['chiffre','vente','ca ']): answer=f"Chiffre d’affaires HT des factures validées : {d['revenue_cents']/100:.2f} €."
-    elif any(w in q for w in ['stock','produit']): answer=f"{d['products']} produits enregistrés. Consultez le module Produits pour les quantités."
-    elif any(w in q for w in ['client']): answer=f"{d['clients']} clients enregistrés dans NOVA ERP."
-    elif any(w in q for w in ['banque','trésorerie']): answer=f"Solde des mouvements bancaires saisis : {f['bank_balance_cents']/100:.2f} €."
-    else: answer="Je peux répondre sur les clients, les stocks, le chiffre d’affaires, les factures à encaisser et la banque."
-    return {'answer':answer,'engine':'assistant local à règles — pas une IA générative'}
+    """Agent de pilotage explicable : lit les données, hiérarchise les risques, conseille sans agir."""
+    q=x.question.lower().strip()
+    d=dashboard(); f=finance(); report=alerts()
+    risks=report['alerts']
+    euros=lambda v: f"{v/100:,.2f} €".replace(',', ' ')
+    if any(w in q for w in ['priorit', 'urgence', 'risque', 'alerte', 'décision', 'conseil', 'recommand', 'analyse', 'diagnostic', 'faire aujourd']):
+        if risks:
+            top=risks[:3]
+            answer=f"Diagnostic NOVA : {len(risks)} alerte(s), dont {report['critical']} critique(s).\n"
+            answer+='\n'.join(f"{i}. {r['title']} — {r['detail']}\n   Action suggérée : {r['options'][0]['label']}." for i,r in enumerate(top,1))
+            answer+='\nCes recommandations sont à vérifier avant décision ; aucune action n’est exécutée automatiquement.'
+        else:answer="Aucune anomalie détectée par les règles actuelles. Cela ne garantit pas l'absence de risque : contrôlez les données et les échéances."
+    elif any(w in q for w in ['impay','encaisser','reste à payer','créance']):
+        answer=f"Factures validées non encaissées : {euros(d['unpaid_cents'])} TTC. Action : vérifier les échéances, puis préparer une relance ciblée."
+    elif any(w in q for w in ['chiffre','vente','ca ','rentabilité']):
+        answer=f"Chiffre d’affaires HT des factures validées : {euros(d['revenue_cents'])}. Ce chiffre ne constitue pas un bénéfice ; rapprochez-le des coûts."
+    elif any(w in q for w in ['stock','produit','rupture']):
+        low=[r for r in risks if r['category']=='Stocks']
+        answer=f"{d['products']} produit(s) enregistré(s), {len(low)} alerte(s) de stock. " + ('Priorité : '+low[0]['detail']+' Vérifiez le réapprovisionnement.' if low else 'Pas de stock faible selon le seuil de démonstration de 5 unités.')
+    elif 'client' in q:
+        answer=f"{d['clients']} client(s) enregistré(s) dans NOVA ERP. Les données de démonstration sont fictives."
+    elif any(w in q for w in ['banque','trésorerie','liquidit']):
+        answer=f"Somme des mouvements bancaires saisis : {euros(f['bank_balance_cents'])}. Ce n'est pas un solde bancaire certifié. " + ('Alerte : montant négatif ; vérifiez le relevé et priorisez les encaissements.' if f['bank_balance_cents']<0 else 'Contrôlez le solde initial et le rapprochement bancaire.')
+    elif any(w in q for w in ['aide','fonction','bonjour','salut']):
+        answer="Je suis NOVA Agent, assistant de pilotage fondé sur les données de cet ERP. Demandez : « Quels risques dois-je traiter ? », « Analyse la trésorerie », « Quel CA ? », « Quels stocks sont faibles ? », « Quelles factures encaisser ? »."
+    else:
+        answer="Je ne peux pas déduire cela des données disponibles. Essayez : risques, trésorerie, chiffre d’affaires, stocks, clients ou factures à encaisser."
+    return {'answer':answer,'engine':'agent analytique local explicable (sans modèle génératif ni actions autonomes)','alerts_count':len(risks)}
 
 
 # --- NOVA ERP v0.4 : pilotage / alertes / aide à la décision ---
